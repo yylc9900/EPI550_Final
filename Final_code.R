@@ -263,44 +263,16 @@ cbind(exp(coef(contrasts1)), exp(confint.default(contrasts1)))
 
 
 #The period from 0 – 1,999 days of follow-up 
-
+summary(fit_ModelA)
 #The period from 2,000 – 3,999 days of follow-up 
-fit2 <- coxph(Surv(TIMEDTH,DEATH) ~ HYPERTEN_BL + educ + BMI + CURSMOKE + tt(HYPERTEN_BL) + strata(AGE_2cat) + strata(SEX),
-              cluster = RANDID, ties="breslow", data=Final550,
-              tt = function(x,t, ...) {
-                gt1 <- ifelse(t >= 2000 & t < 4000, 1, 0)
-                gt2 <- ifelse(t >= 4000 & t < 6000, 1, 0)
-                gt3 <- ifelse(t >= 6000, 1, 0)
-                cbind(HYPERTEN_BL1=as.numeric(x) * gt1,
-                      HYPERTEN_BL2=as.numeric(x) * gt2,
-                      HYPERTEN_BL3=as.numeric(x) * gt3)
-                })
-
-
-K2 <- rbind("HR - 0-1999 days" = c(1, 0, 0, 0, 1),
-            "HR - 2000-3999 days" = c(1, 0, 0, 0, 1),
-            "HR - 4000-5999 days" = c(1, 0, 0, 0, 1),
-            "HR - 6000+ days" = c(1, 0, 0, 0, 1))
-
-
-contrasts1 <- glht(fit2,linfct = K2)
-cbind(exp(coef(contrasts1)), exp(confint.default(contrasts1)))
-
-
-
 #The period from 4,000 – 5,999 days of follow-up 
-
-
-
 #The period from 6,000 days of follow-up through the end of the study period 
 
 
 
 
 
-
-
-#WAY2
+#WAY2 (Wrong, can be deleted)
 #The period from 0 – 1,999 days of follow-up 
 fit1 <- coxph(Surv(TIMEDTH,DEATH) ~ HYPERTEN_BL + educ + tt(BMI) + tt(CURSMOKE) + tt(HYPERTEN_BL) + strata(AGE_2cat) + strata(SEX),
               cluster = RANDID, ties="breslow", data=Final550,
