@@ -213,9 +213,6 @@ coxph(Surv(TIMEDTH,DEATH) ~ SEX + tt(SEX),cluster = RANDID, data = Final550,ties
 #### Part D: SURVIVAL ANALYSIS for Question A
 ###########################################################################################
 
-#Group by 2: Dichotomize at the median
-Final550$AGE_2cat <- ifelse(Final550$AGE<=49, 1, 2)
-
 #Create dummy variables
 Final550$group <- with(Final550, ifelse(
   SEX==1 & educ==1,1, ifelse(
@@ -238,27 +235,26 @@ Final550$Z6[Final550$group==6] <- 1
 Final550$Z7[Final550$group==7] <- 1
 Final550$Z8[Final550$group==8] <- 1
 
-
 # Full Model
-fit_ModelA <- coxph(Surv(TIMEDTH,DEATH) ~ HYPERTEN_BL + BMI + CURSMOKE + tt(HYPERTEN_BL) + 
-                      strata(AGE_2cat) + strata(Z1,Z2,Z3,Z4,Z5,Z6,Z7,Z8),
-              cluster = RANDID, ties="breslow", data=Final550,
-              tt = function(x,t, ...) {
-                gt1 <- ifelse(t >= 2000 & t < 4000, 1, 0)
-                gt2 <- ifelse(t >= 4000 & t < 6000, 1, 0)
-                gt3 <- ifelse(t >= 6000, 1, 0)
-                cbind(HYPERTEN_BL1=as.numeric(x) * gt1,
-                      HYPERTEN_BL2=as.numeric(x) * gt2,
-                      HYPERTEN_BL3=as.numeric(x) * gt3)
-              })
+fit_ModelA <- coxph(Surv(TIMEDTH,DEATH) ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE + tt(HYPERTEN_BL) + 
+                      strata(Z1,Z2,Z3,Z4,Z5,Z6,Z7,Z8),
+                    cluster = RANDID, ties="breslow", data=Final550,
+                    tt = function(x,t, ...) {
+                      gt1 <- ifelse(t >= 2000 & t < 4000, 1, 0)
+                      gt2 <- ifelse(t >= 4000 & t < 6000, 1, 0)
+                      gt3 <- ifelse(t >= 6000, 1, 0)
+                      cbind(HYPERTEN_BL1=as.numeric(x) * gt1,
+                            HYPERTEN_BL2=as.numeric(x) * gt2,
+                            HYPERTEN_BL3=as.numeric(x) * gt3)
+                    })
 
-summary(fit_ModelA)
 
-K_ModelA <- rbind("HR - 2000 ≤t <4000 days" = c(1,0,0,1,0,0,0),
-                  "HR - 4000 ≤t <6000 days" = c(1,0,0,0,1,0,0),
-                  "HR - t ≥6000 days" = c(0,0,0,0,0,0,0))
+K_ModelA <- rbind("HR - 2000 ≤t <4000 days" = c(1,0,0,0,1,0,0),
+                  "HR - 4000 ≤t <6000 days" = c(1,0,0,0,0,1,0),
+                  "HR - t ≥6000 days" = c(1,0,0,0,0,0,1))
 
-contrasts1 <- glht(fit1,linfct = K1)
+contrasts1 <- glht(fit_ModelA,linfct = K_ModelA)
+
 cbind(exp(coef(contrasts1)), exp(confint.default(contrasts1)))
 
 
