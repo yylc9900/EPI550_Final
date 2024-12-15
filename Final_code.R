@@ -16,20 +16,25 @@ library(ggcorrplot)
 library(dplyr)
 library(mgcv)
 library(tidymv)
-library(haven)
 library(multcomp)
+library(sandwich)
+
 
 ##### Load clean dataset
-getwd()
-setwd("E:\\1A-Emory\\#3 FA 24\\RA\\Dataset")
-Final550 <- read_sas("E:/1A-Emory/#3 FA 24/EPI550/550 Final/fham.sas7bdat")
+#getwd()
 
+path <- "C:/Users/21055/OneDrive - Emory/EPI550_final"
+Final550 <- read_sas(paste0(path,"/fham.sas7bdat"))
+
+
+# Preview of data 
+summary(Final550)# BMI, educ have NA's
 
 ###########################################################################################
 ##### Part A: Table1 (DEATH, SEX, BMI, AGE_BL, educ, CURSMOKE) stratified by HYPERTEN_BL
 ###########################################################################################
 
-Final550_PERIOD1 <- subset(Final550, PERIOD==1)
+Final550_PERIOD1 <- subset(Final550, PERIOD==1)# baseline visit
 
 #Labeling each level
 Final550_PERIOD1$DEATH <-
@@ -59,7 +64,7 @@ Final550_PERIOD1$HYPERTEN_BL <-
 
 #Create Table 1
 Final550_PERIOD1 |> 
-  select(DEATH, SEX, BMI, AGE_BL, educ, CURSMOKE, HYPERTEN_BL) |>
+  dplyr::select(DEATH, SEX, BMI, AGE_BL, educ, CURSMOKE, HYPERTEN_BL) |>
   tbl_summary(
     by = HYPERTEN_BL,
     missing = "no",
@@ -86,7 +91,7 @@ Final550_PERIOD1 |>
 ###########################################################################################
 #### Part B: Crude Association
 ###########################################################################################
-#B1: Kaplan-Meier curves
+#B1: Kaplan-Meier curves - whole dataset
 fit <- survfit(Surv(TIMEDTH,DEATH) ~ HYPERTEN_BL, cluster = RANDID, data=Final550)
 ggsurvplot(fit) + ggtitle ("Hypertension at Enrollment Survival Estimates")
 
@@ -213,31 +218,8 @@ coxph(Surv(TIMEDTH,DEATH) ~ SEX + tt(SEX),cluster = RANDID, data = Final550,ties
 #### Part D: SURVIVAL ANALYSIS for Question A
 ###########################################################################################
 
-#Create dummy variables
-Final550$group <- with(Final550, ifelse(
-  SEX==1 & educ==1,1, ifelse(
-    SEX==1 & educ==2,2, ifelse(
-      SEX==1 & educ==3,3, ifelse(
-        SEX==1 & educ==4,4, ifelse(
-          SEX==2 & educ==1,5, ifelse(
-            SEX==2 & educ==2,6, ifelse(
-              SEX==2 & educ==3,7, ifelse(
-                SEX==2 & educ==4,8, NA)))))))))
-
-#Initialize dummy variables to zero
-Final550[,c("Z1","Z2","Z3","Z4","Z5","Z6","Z7","Z8")] <- 0
-Final550$Z1[Final550$group==1] <- 1
-Final550$Z2[Final550$group==2] <- 1
-Final550$Z3[Final550$group==3] <- 1
-Final550$Z4[Final550$group==4] <- 1
-Final550$Z5[Final550$group==5] <- 1
-Final550$Z6[Final550$group==6] <- 1
-Final550$Z7[Final550$group==7] <- 1
-Final550$Z8[Final550$group==8] <- 1
-
-# Full Model
 fit_ModelA <- coxph(Surv(TIMEDTH,DEATH) ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE + tt(HYPERTEN_BL) + 
-                      strata(Z1,Z2,Z3,Z4,Z5,Z6,Z7,Z8),
+                      strata(SEX) + strata(educ),
                     cluster = RANDID, ties="breslow", data=Final550,
                     tt = function(x,t, ...) {
                       gt1 <- ifelse(t >= 2000 & t < 4000, 1, 0)
@@ -248,6 +230,8 @@ fit_ModelA <- coxph(Surv(TIMEDTH,DEATH) ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE 
                             HYPERTEN_BL3=as.numeric(x) * gt3)
                     })
 
+# HR (95% CI) for 0-2000 days - beta1
+summary(fit_ModelA)
 
 K_ModelA <- rbind("HR - 2000 ≤t <4000 days" = c(1,0,0,0,1,0,0),
                   "HR - 4000 ≤t <6000 days" = c(1,0,0,0,0,1,0),
@@ -255,34 +239,87 @@ K_ModelA <- rbind("HR - 2000 ≤t <4000 days" = c(1,0,0,0,1,0,0),
 
 contrasts1 <- glht(fit_ModelA,linfct = K_ModelA)
 
+# HRs (95% CI) for rest three time ranges
 cbind(exp(coef(contrasts1)), exp(confint.default(contrasts1)))
 
 
-#The period from 0 – 1,999 days of follow-up 
-summary(fit_ModelA)
-#The period from 2,000 – 3,999 days of follow-up 
-#The period from 4,000 – 5,999 days of follow-up 
-#The period from 6,000 days of follow-up through the end of the study period 
+###########################################################################################
+#### Part E: OTHER REGRESSION TYPES for Question A
+###########################################################################################
+
+### Restrict this analysis to the based line visit - Final550_PERIOD1
+table(Final550_PERIOD1$DEATH) # dichotomous outcome
+
+## First, we use unconditional logistic regression to get OR
+fit_log <- glm(data = Final550_PERIOD1,
+               DEATH ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE + AGE_BL + SEX,
+               family=binomial (link='logit'))
+summary(fit_log)
+
+cbind(exp(coef(fit_log)), exp(confint.default(fit_log)))
+
+## Next, we use poisson regression to get RR
+# Turn outcome variable back to numeric to run the model
+if (is.factor(Final550_PERIOD1$DEATH)) {
+  # Convert DEATH to numeric, assuming it has levels like "0" and "1"
+  Final550_PERIOD1$DEATH <- as.numeric(as.character(Final550_PERIOD1$DEATH))
+}
+
+prop.table(table(Final550_PERIOD1$DEATH))
+is.numeric(Final550_PERIOD1$DEATH)
+
+# fit the model with robust variance estiamtes
+fit_poi <- glm(data = Final550_PERIOD1,
+               DEATH ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE + AGE_BL + SEX,
+               family = 'poisson')
+
+# Calculate 95% CI
+sandwich_se <- diag(vcovHC(fit_poi, type = "HC"))^0.5
+
+lowerlim <- coef(fit_poi) - 1.96*sandwich_se
+upperlim <- coef(fit_poi) + 1.96*sandwich_se
+
+PrevRatio <- coef(fit_poi)
+cbind(exp(PrevRatio), exp(lowerlim), exp(upperlim))
 
 
 
+###########################################################################################
+##### Part F: Survival analysis for CHD diagnosis: BMI + CURSMOKE + BMI*SEX
+###########################################################################################
+Final550_PREVCHD0 <- Final550[Final550$PREVCHD==0,] # N = 1078
 
+# Outcome is the incident CHD diagnosis
+table(Final550_PREVCHD0$ANYCHD)
 
-#WAY2 (Wrong, can be deleted)
-#The period from 0 – 1,999 days of follow-up 
-fit1 <- coxph(Surv(TIMEDTH,DEATH) ~ HYPERTEN_BL + educ + tt(BMI) + tt(CURSMOKE) + tt(HYPERTEN_BL) + strata(AGE_2cat) + strata(SEX),
-              cluster = RANDID, ties="breslow", data=Final550,
-              tt = function(x,t, ...) {
-                gt <- ifelse (t < 1999,1,0)
-                as.numeric(x) * gt
-              })
-K1 <- rbind("HR - 0 to 1,999 days" = c(1,0,0,0,1),
-            "HR - After 1,999 day" = c(1,0,0,0,0))
-contrasts1 <- glht(fit1,linfct = K1)
-cbind(exp(coef(contrasts1)), exp(confint.default(contrasts1)))
+# BMI recoded to nominal variable
+Final550_PREVCHD0$BMI_OW <- ifelse(is.na(Final550_PREVCHD0$BMI),NA,
+                                   ifelse(Final550_PREVCHD0$BMI>=25 & Final550_PREVCHD0$BMI < 30,1,0))
+Final550_PREVCHD0$BMI_OB <- ifelse(is.na(Final550_PREVCHD0$BMI),NA,
+                                   ifelse(Final550_PREVCHD0$BMI>=30,1,0))
 
-summary(fit1)
+### Fit the model
+fit_modelE <- coxph(Surv(TIMEDTH,ANYCHD) ~ BMI_OW + BMI_OB + CURSMOKE + (BMI_OW + BMI_OB + CURSMOKE):SEX + 
+                      strata(SEX),
+                    data = Final550_PREVCHD0,
+                    ties = "breslow")
 
+k_modelE <- rbind('Overweight, males'= c(1,0,0,1,0,0),
+                  'Overweight, females'= c(1,0,0,2,0,0),
+                  'Obesity, males' = c(0,1,0,0,1,0),
+                  'Obseity, females'= c(0,1,0,0,2,0))
 
+contrasts2 <- glht(fit_modelE,linfct = k_modelE)
 
+# HRs (95% CI) for each stratum
+cbind(exp(coef(contrasts2)), exp(confint.default(contrasts2)))
+
+### LRT - statistical interaction?
+## Full model - fit_modelE
+## Reduced model
+fit_modelE_reduce <- coxph(Surv(TIMEDTH,ANYCHD) ~ BMI_OW + BMI_OB + CURSMOKE + strata(SEX),
+                    data = Final550_PREVCHD0,
+                    ties = "breslow")
+## Test statistic
+anova(fit_modelE_reduce, fit_modelE, test = 'chisq')
 
