@@ -287,10 +287,16 @@ cbind(exp(PrevRatio), exp(lowerlim), exp(upperlim))
 ###########################################################################################
 ##### Part F: Survival analysis for CHD diagnosis: BMI + CURSMOKE + BMI*SEX
 ###########################################################################################
-Final550_PREVCHD0 <- Final550[Final550$PREVCHD==0,] # N = 10785
+Final550_risk_ID <- Final550[Final550$PREVCHD==0&Final550$PERIOD==1,] %>% 
+  pull(RANDID) # ID of population at risk (baseline)
+
+Final550_PREVCHD0 <- Final550 %>% filter(RANDID %in% Final550_risk_ID) # N = 11220
 
 # Outcome is the incident CHD diagnosis
-table(Final550_PREVCHD0$ANYCHD)
+#Final550_ANYCHD <- Final550_PREVCHD0 %>% dplyr::select(RANDID,ANYCHD) %>% 
+#  group_by(RANDID) %>% distinct(RANDID, .keep_all = T)
+#prop.table(table(Final550_ANYCHD$ANYCHD)) #25%
+
 
 # BMI recoded to nominal variable
 Final550_PREVCHD0$BMI_OW <- ifelse(is.na(Final550_PREVCHD0$BMI),NA,
@@ -300,7 +306,7 @@ Final550_PREVCHD0$BMI_OB <- ifelse(is.na(Final550_PREVCHD0$BMI),NA,
 
 ### Fit the model
 fit_modelE <- coxph(Surv(TIMECHD,ANYCHD) ~ BMI_OW + BMI_OB + CURSMOKE + (BMI_OW + BMI_OB + CURSMOKE):SEX + 
-                      strata(SEX),
+                      strata(SEX), cluster = RANDID,
                     data = Final550_PREVCHD0,
                     ties = "breslow")
 
@@ -318,16 +324,30 @@ cbind(exp(coef(contrasts2)), exp(confint.default(contrasts2)))
 ## Full model - fit_modelE
 ## Reduced model
 fit_modelE_reduce <- coxph(Surv(TIMECHD,ANYCHD) ~ BMI_OW + BMI_OB + CURSMOKE + strata(SEX),
+                           cluster = RANDID,
                     data = Final550_PREVCHD0,
                     ties = "breslow")
 ## Test statistic
-anova(fit_modelE_reduce, fit_modelE, test = 'chisq')
+
+# Calculate the likelihood ratio test statistic
+logLik(fit_modelE_reduce)
+logLik(fit_modelE)
+
+test_statistic <- 2 * (logLik(fit_modelE) - logLik(fit_modelE_reduce))
+
+# Degrees of freedom is the difference in the number of parameters between the two models
+df <- length(coef(fit_modelE)) - length(coef(fit_modelE_reduce))
+df
+p_value <- 1 - pchisq(test_statistic, df)
+
+test_statistic
+p_value
 
 ### Confounding by current smoke?
 ## Gold standard model - fit_modelE
 ## Exclude CURSMOKE
 fit_modelE_1 <- coxph(Surv(TIMECHD,ANYCHD) ~ BMI_OW + BMI_OB + (BMI_OW + BMI_OB):SEX + 
-                      strata(SEX),
+                      strata(SEX),cluster = RANDID,
                     data = Final550_PREVCHD0,
                     ties = "breslow")
 # New HRs
