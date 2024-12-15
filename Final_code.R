@@ -270,7 +270,7 @@ is.numeric(Final550_PERIOD1$DEATH)
 
 # fit the model with robust variance estimates
 fit_poi <- glm(data = Final550_PERIOD1,
-               DEATH ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE + AGE_BL + SEX + educ,
+               DEATH ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE + SEX + educ,
                family = 'poisson')
 
 # Calculate 95% CI
