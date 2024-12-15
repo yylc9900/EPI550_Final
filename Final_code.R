@@ -9,7 +9,6 @@ library(haven)
 library(gtsummary)
 library(labelled)
 library(ggplot2)
-library(table1)
 library(survival)
 library(survminer)
 library(ggcorrplot)
@@ -58,7 +57,7 @@ Final550_PERIOD1$CURSMOKE <-
          labels=c("Not current smoker", "Current smoker"))
 
 Final550_PERIOD1$HYPERTEN_BL <-
-  factor(Final550_PERIOD1$HYPERTEN,
+  factor(Final550_PERIOD1$HYPERTEN_BL,
          levels=c(0,1),
          labels=c("Non-Hypertensive", "Hypertensive"))
 
@@ -81,8 +80,8 @@ Final550_PERIOD1 |>
                   CURSMOKE ~ "Current cigarette smoking at exam")
   ) |>
   add_overall() |>
-  modify_header(label = "Demographic characteristics") |>
-  modify_caption("Table1: Description of demographics in the Framingham Heart Study, stratified by hypertension status at baseline") |>
+  modify_header(label = "Characteristics") |>
+  modify_caption("Table1: Description of population characterisitics in the Framingham Heart Study, stratified by hypertension status at baseline") |>
   modify_footnote(
     all_stat_cols() ~ "*Values may not sum to the total due to missing data; *Mean (SD); *n (%)") |>
   bold_labels()
@@ -251,8 +250,9 @@ cbind(exp(coef(contrasts1)), exp(confint.default(contrasts1)))
 table(Final550_PERIOD1$DEATH) # dichotomous outcome
 
 ## First, we use unconditional logistic regression to get OR
+
 fit_log <- glm(data = Final550_PERIOD1,
-               DEATH ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE + AGE_BL + SEX,
+               DEATH ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE + AGE_BL + SEX + educ,
                family=binomial (link='logit'))
 summary(fit_log)
 
@@ -268,9 +268,9 @@ if (is.factor(Final550_PERIOD1$DEATH)) {
 prop.table(table(Final550_PERIOD1$DEATH))
 is.numeric(Final550_PERIOD1$DEATH)
 
-# fit the model with robust variance estiamtes
+# fit the model with robust variance estimates
 fit_poi <- glm(data = Final550_PERIOD1,
-               DEATH ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE + AGE_BL + SEX,
+               DEATH ~ HYPERTEN_BL + AGE_BL + BMI + CURSMOKE + AGE_BL + SEX + educ,
                family = 'poisson')
 
 # Calculate 95% CI
@@ -287,7 +287,7 @@ cbind(exp(PrevRatio), exp(lowerlim), exp(upperlim))
 ###########################################################################################
 ##### Part F: Survival analysis for CHD diagnosis: BMI + CURSMOKE + BMI*SEX
 ###########################################################################################
-Final550_PREVCHD0 <- Final550[Final550$PREVCHD==0,] # N = 1078
+Final550_PREVCHD0 <- Final550[Final550$PREVCHD==0,] # N = 10785
 
 # Outcome is the incident CHD diagnosis
 table(Final550_PREVCHD0$ANYCHD)
@@ -299,7 +299,7 @@ Final550_PREVCHD0$BMI_OB <- ifelse(is.na(Final550_PREVCHD0$BMI),NA,
                                    ifelse(Final550_PREVCHD0$BMI>=30,1,0))
 
 ### Fit the model
-fit_modelE <- coxph(Surv(TIMEDTH,ANYCHD) ~ BMI_OW + BMI_OB + CURSMOKE + (BMI_OW + BMI_OB + CURSMOKE):SEX + 
+fit_modelE <- coxph(Surv(TIMECHD,ANYCHD) ~ BMI_OW + BMI_OB + CURSMOKE + (BMI_OW + BMI_OB + CURSMOKE):SEX + 
                       strata(SEX),
                     data = Final550_PREVCHD0,
                     ties = "breslow")
@@ -317,9 +317,25 @@ cbind(exp(coef(contrasts2)), exp(confint.default(contrasts2)))
 ### LRT - statistical interaction?
 ## Full model - fit_modelE
 ## Reduced model
-fit_modelE_reduce <- coxph(Surv(TIMEDTH,ANYCHD) ~ BMI_OW + BMI_OB + CURSMOKE + strata(SEX),
+fit_modelE_reduce <- coxph(Surv(TIMECHD,ANYCHD) ~ BMI_OW + BMI_OB + CURSMOKE + strata(SEX),
                     data = Final550_PREVCHD0,
                     ties = "breslow")
 ## Test statistic
 anova(fit_modelE_reduce, fit_modelE, test = 'chisq')
+
+### Confounding by current smoke?
+## Gold standard model - fit_modelE
+## Exclude CURSMOKE
+fit_modelE_1 <- coxph(Surv(TIMECHD,ANYCHD) ~ BMI_OW + BMI_OB + (BMI_OW + BMI_OB):SEX + 
+                      strata(SEX),
+                    data = Final550_PREVCHD0,
+                    ties = "breslow")
+# New HRs
+k_modelE_1 <- rbind('Overweight, males'= c(1,0,1,0),
+                    'Overweight, females'= c(1,0,2,0),
+                    'Obesity, males' = c(0,1,0,1),
+                    'Obseity, females'= c(0,1,0,2))
+
+contrasts3 <- glht(fit_modelE_1,linfct = k_modelE_1)
+exp(coef(contrasts3))
 
